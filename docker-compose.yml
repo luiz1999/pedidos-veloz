@@ -1,0 +1,70 @@
+﻿version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: pvuser
+      POSTGRES_PASSWORD: pvsenha
+      POSTGRES_DB: pedidosveloz
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./services/pedidos/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pvuser"]
+      interval: 10s
+      retries: 5
+
+  pedidos:
+    build: ./services/pedidos
+    environment:
+      DB_HOST: postgres
+      DB_USER: pvuser
+      DB_PASSWORD: pvsenha
+      DB_NAME: pedidosveloz
+      DB_PORT: 5432
+    networks: [app-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3001/health || exit 1"]
+      interval: 10s
+      retries: 5
+
+  pagamentos:
+    build: ./services/pagamentos
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3002/health || exit 1"]
+      interval: 10s
+      retries: 5
+
+  estoque:
+    build: ./services/estoque
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3003/health || exit 1"]
+      interval: 10s
+      retries: 5
+
+  api-gateway:
+    build: ./services/api-gateway
+    ports:
+      - "3000:3000"
+    networks: [app-net]
+    depends_on:
+      pedidos:
+        condition: service_healthy
+      pagamentos:
+        condition: service_healthy
+      estoque:
+        condition: service_healthy
+
+networks:
+  app-net:
+    driver: bridge
+
+volumes:
+  postgres-data:

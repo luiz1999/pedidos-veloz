@@ -1,0 +1,279 @@
+﻿apiVersion: v1
+kind: Namespace
+metadata:
+  name: pedidos-veloz
+
+---
+# ConfigMap para configurações
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pedidos-config
+  namespace: pedidos-veloz
+data:
+  DB_HOST: "postgres"
+  DB_USER: "pvuser"
+  DB_PASSWORD: "pvsenha"
+  DB_NAME: "pedidosveloz"
+
+---
+# PostgreSQL Deployment + Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: pedidos-veloz
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        env:
+        - name: POSTGRES_USER
+          value: "pvuser"
+        - name: POSTGRES_PASSWORD
+          value: "pvsenha"
+        - name: POSTGRES_DB
+          value: "pedidosveloz"
+        ports:
+        - containerPort: 5432
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: postgres-data
+        emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: pedidos-veloz
+spec:
+  selector:
+    app: postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
+
+---
+# Pedidos Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pedidos
+  namespace: pedidos-veloz
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pedidos
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: pedidos
+    spec:
+      containers:
+      - name: pedidos
+        image: pedidos-veloz-pedidos:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 3001
+        envFrom:
+        - configMapRef:
+            name: pedidos-config
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3001
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3001
+          initialDelaySeconds: 15
+          periodSeconds: 20
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pedidos-svc
+  namespace: pedidos-veloz
+spec:
+  selector:
+    app: pedidos
+  ports:
+  - port: 3001
+    targetPort: 3001
+
+---
+# Pagamentos Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pagamentos
+  namespace: pedidos-veloz
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pagamentos
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: pagamentos
+    spec:
+      containers:
+      - name: pagamentos
+        image: pedidos-veloz-pagamentos:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 3002
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3002
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pagamentos-svc
+  namespace: pedidos-veloz
+spec:
+  selector:
+    app: pagamentos
+  ports:
+  - port: 3002
+    targetPort: 3002
+
+---
+# Estoque Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: estoque
+  namespace: pedidos-veloz
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: estoque
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: estoque
+    spec:
+      containers:
+      - name: estoque
+        image: pedidos-veloz-estoque:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 3003
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3003
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: estoque-svc
+  namespace: pedidos-veloz
+spec:
+  selector:
+    app: estoque
+  ports:
+  - port: 3003
+    targetPort: 3003
+
+---
+# API Gateway
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: pedidos-veloz
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api-gateway
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+      - name: api-gateway
+        image: pedidos-veloz-api-gateway:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 3000
+        env:
+        - name: PEDIDOS_URL
+          value: "http://pedidos-svc:3001"
+        - name: PAGAMENTOS_URL
+          value: "http://pagamentos-svc:3002"
+        - name: ESTOQUE_URL
+          value: "http://estoque-svc:3003"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway-svc
+  namespace: pedidos-veloz
+spec:
+  type: NodePort
+  selector:
+    app: api-gateway
+  ports:
+  - port: 3000
+    targetPort: 3000
+    nodePort: 30000
+
+---
+# HPA - Horizontal Pod Autoscaler (exemplo para pedidos)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: pedidos-hpa
+  namespace: pedidos-veloz
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: pedidos
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
