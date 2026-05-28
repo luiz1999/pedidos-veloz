@@ -4,7 +4,21 @@ metadata:
   name: pedidos-veloz
 
 ---
-# ConfigMap para configurações
+# ✅ MUDANÇA 1: Secret separado para dados sensíveis (senha do banco)
+# Antes estava no ConfigMap — senha em ConfigMap é errado!
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pedidos-secret
+  namespace: pedidos-veloz
+type: Opaque
+stringData:
+  DB_USER: "pvuser"
+  DB_PASSWORD: "pvsenha"
+
+---
+# ConfigMap só com dados NÃO sensíveis
+# ✅ MUDANÇA: removeu DB_USER e DB_PASSWORD daqui
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -12,12 +26,11 @@ metadata:
   namespace: pedidos-veloz
 data:
   DB_HOST: "postgres"
-  DB_USER: "pvuser"
-  DB_PASSWORD: "pvsenha"
   DB_NAME: "pedidosveloz"
+  DB_PORT: "5432"
 
 ---
-# PostgreSQL Deployment + Service
+# PostgreSQL
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -66,7 +79,7 @@ spec:
     targetPort: 5432
 
 ---
-# Pedidos Service
+# Serviço de Pedidos
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -93,9 +106,17 @@ spec:
         imagePullPolicy: Never
         ports:
         - containerPort: 3001
+        # ✅ MUDANÇA 2: puxa ConfigMap E Secret juntos
         envFrom:
         - configMapRef:
-            name: pedidos-config
+            name: pedidos-config   # DB_HOST, DB_NAME, DB_PORT
+        - secretRef:
+            name: pedidos-secret   # DB_USER, DB_PASSWORD
+        # ✅ MUDANÇA 3: segurança — roda sem privilégios de root
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          allowPrivilegeEscalation: false
         readinessProbe:
           httpGet:
             path: /health
@@ -123,7 +144,7 @@ spec:
     targetPort: 3001
 
 ---
-# Pagamentos Service
+# Serviço de Pagamentos
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -136,6 +157,9 @@ spec:
       app: pagamentos
   strategy:
     type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   template:
     metadata:
       labels:
@@ -147,10 +171,23 @@ spec:
         imagePullPolicy: Never
         ports:
         - containerPort: 3002
+        # ✅ securityContext em todos os serviços
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          allowPrivilegeEscalation: false
         readinessProbe:
           httpGet:
             path: /health
             port: 3002
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3002
+          initialDelaySeconds: 15
+          periodSeconds: 20
 
 ---
 apiVersion: v1
@@ -166,7 +203,7 @@ spec:
     targetPort: 3002
 
 ---
-# Estoque Service
+# Serviço de Estoque
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -179,6 +216,9 @@ spec:
       app: estoque
   strategy:
     type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   template:
     metadata:
       labels:
@@ -190,10 +230,23 @@ spec:
         imagePullPolicy: Never
         ports:
         - containerPort: 3003
+        # ✅ securityContext em todos os serviços
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          allowPrivilegeEscalation: false
         readinessProbe:
           httpGet:
             path: /health
             port: 3003
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3003
+          initialDelaySeconds: 15
+          periodSeconds: 20
 
 ---
 apiVersion: v1
@@ -222,6 +275,9 @@ spec:
       app: api-gateway
   strategy:
     type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   template:
     metadata:
       labels:
@@ -233,6 +289,11 @@ spec:
         imagePullPolicy: Never
         ports:
         - containerPort: 3000
+        # ✅ securityContext em todos os serviços
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          allowPrivilegeEscalation: false
         env:
         - name: PEDIDOS_URL
           value: "http://pedidos-svc:3001"
@@ -240,6 +301,18 @@ spec:
           value: "http://pagamentos-svc:3002"
         - name: ESTOQUE_URL
           value: "http://estoque-svc:3003"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 15
+          periodSeconds: 20
 
 ---
 apiVersion: v1
@@ -257,7 +330,7 @@ spec:
     nodePort: 30000
 
 ---
-# HPA - Horizontal Pod Autoscaler (exemplo para pedidos)
+# HPA — escala automática por CPU
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:

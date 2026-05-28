@@ -2,12 +2,32 @@
 const app = express();
 app.use(express.json());
 
+const PEDIDOS_URL    = process.env.PEDIDOS_URL    || 'http://pedidos:3001';
+const PAGAMENTOS_URL = process.env.PAGAMENTOS_URL || 'http://pagamentos:3002';
+const ESTOQUE_URL    = process.env.ESTOQUE_URL    || 'http://estoque:3003';
+
+// Rota raiz — resolve a tela em branco
+app.get('/', (req, res) => {
+  res.json({
+    app: 'Pedidos Veloz API',
+    versao: '1.0.0',
+    status: 'online',
+    rotas: [
+      'GET  /health',
+      'GET  /api/pedidos',
+      'POST /api/pedidos',
+      'POST /api/pagamentos',
+      'GET  /api/estoque/:produto',
+      'POST /api/estoque/reservar'
+    ]
+  });
+});
+
 app.get('/health', (req, res) => res.json({ status: 'ok', service: 'api-gateway' }));
 
-// Proxy simples e direto para Kubernetes
 app.use('/api/pedidos', async (req, res) => {
   try {
-    const resp = await fetch('http://pedidos-svc:3001/pedidos' + req.url, {
+    const resp = await fetch(`${PEDIDOS_URL}/pedidos` + req.url, {
       method: req.method,
       headers: { 'Content-Type': 'application/json' },
       body: req.method === 'POST' ? JSON.stringify(req.body) : undefined
@@ -21,7 +41,7 @@ app.use('/api/pedidos', async (req, res) => {
 
 app.use('/api/pagamentos', async (req, res) => {
   try {
-    const resp = await fetch('http://pagamentos-svc:3002/pagamentos', {
+    const resp = await fetch(`${PAGAMENTOS_URL}/pagamentos`, {
       method: req.method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req.body)
@@ -35,7 +55,7 @@ app.use('/api/pagamentos', async (req, res) => {
 
 app.use('/api/estoque', async (req, res) => {
   try {
-    const resp = await fetch('http://estoque-svc:3003/estoque' + req.url, {
+    const resp = await fetch(`${ESTOQUE_URL}/estoque` + req.url, {
       method: req.method,
       headers: { 'Content-Type': 'application/json' },
       body: req.method === 'POST' ? JSON.stringify(req.body) : undefined

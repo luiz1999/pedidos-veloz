@@ -51,6 +51,10 @@ services:
 
   api-gateway:
     build: ./services/api-gateway
+    environment:
+      PEDIDOS_URL: "http://pedidos:3001"
+      PAGAMENTOS_URL: "http://pagamentos:3002"
+      ESTOQUE_URL: "http://estoque:3003"
     ports:
       - "3000:3000"
     networks: [app-net]
@@ -68,3 +72,4 @@ networks:
 
 volumes:
   postgres-data:
+
