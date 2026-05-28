@@ -32,7 +32,7 @@ Modernização da aplicação da Loja Veloz, resolvendo problemas de deploy, esc
 
 ```bash
 # 1. Clonar o projeto
-git clone https://github.com/SEU_USUARIO/pedidos-veloz.git
+git clone https://github.com/luiz1999/pedidos-veloz.git
 cd pedidos-veloz
 
 # 2. Subir tudo com um único comando
